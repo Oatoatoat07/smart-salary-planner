@@ -1,65 +1,591 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useMemo, useEffect } from 'react';
+import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
+import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
+import { generateSmartInsights } from '@/lib/utils/budgetEngine';
+import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, RefreshCw, Save } from 'lucide-react';
+
+interface FixedBill {
+  id: string;
+  name: string;
+  amount: number;
+  category: ExpenseCategory;
+}
+
+export default function Dashboard() {
+  const [grossSalaryStr, setGrossSalaryStr] = useState<string>('');
+  const [sideIncomeStr, setSideIncomeStr] = useState<string>('');
+  const [expenseDump, setExpenseDump] = useState<string>('');
+  const [categoryOverrides, setCategoryOverrides] = useState<Record<string, ExpenseCategory>>({});
+
+  // Fixed Recurring Bills
+  const [fixedBills, setFixedBills] = useState<FixedBill[]>([]);
+  const [newBillName, setNewBillName] = useState('');
+  const [newBillAmount, setNewBillAmount] = useState('');
+  const [newBillCategory, setNewBillCategory] = useState<ExpenseCategory>('needs');
+
+  // Custom Budget Percentages
+  const [needsPct, setNeedsPct] = useState<number>(50);
+  const [wantsPct, setWantsPct] = useState<number>(30);
+  const [investPct, setInvestPct] = useState<number>(20);
+
+  const [checklistSeed, setChecklistSeed] = useState(0);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Load all state from local storage on mount
+  useEffect(() => {
+    const savedBills = localStorage.getItem('salaryPlannerFixedBills');
+    if (savedBills) {
+      try { setFixedBills(JSON.parse(savedBills)); } catch (e) { }
+    }
+    
+    const savedState = localStorage.getItem('salaryPlannerState');
+    if (savedState) {
+        try {
+            const data = JSON.parse(savedState);
+            if (data.grossSalaryStr) setGrossSalaryStr(data.grossSalaryStr);
+            if (data.sideIncomeStr) setSideIncomeStr(data.sideIncomeStr);
+            if (data.expenseDump !== undefined) setExpenseDump(data.expenseDump);
+            if (data.needsPct) setNeedsPct(data.needsPct);
+            if (data.wantsPct) setWantsPct(data.wantsPct);
+            if (data.investPct) setInvestPct(data.investPct);
+        } catch (e) {}
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // Save to local storage whenever core state changes
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem('salaryPlannerFixedBills', JSON.stringify(fixedBills));
+    const data = { grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct };
+    localStorage.setItem('salaryPlannerState', JSON.stringify(data));
+  }, [fixedBills, grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, isLoaded]);
+
+  // 1. Calculate the Income Side (Thai Tax & SSO)
+  const grossSalary = parseFloat(grossSalaryStr.replace(/,/g, '')) || 0;
+  const sideIncome = parseFloat(sideIncomeStr.replace(/,/g, '')) || 0;
+  const netSalary = calculateNetSalary(grossSalary, sideIncome);
+  const tax = calculateMonthlyTax(grossSalary, sideIncome);
+  const sso = calculateSSO(grossSalary);
+
+  // 2. Parse Expenses (The Lazy Dump Box)
+  const parsedExpenses = useMemo(() => {
+    const baseParsed = parseExpenseDump(expenseDump);
+    return baseParsed.map(exp => ({
+      ...exp,
+      category: categoryOverrides[exp.name] || exp.category
+    }));
+  }, [expenseDump, categoryOverrides]);
+
+  // 3. Dynamic Budget Targets
+  const budgetTargets = {
+    needs: netSalary * (needsPct / 100),
+    wants: netSalary * (wantsPct / 100),
+    investments: netSalary * (investPct / 100)
+  };
+
+  // 4. Calculate Actual Spending per Category (Dump Box + Fixed Bills)
+  const actualSpending = useMemo(() => {
+    const totals = { needs: 0, wants: 0, investments: 0, unknown: 0 };
+    
+    // Sum from variable dump box
+    parsedExpenses.forEach(exp => {
+      totals[exp.category] += exp.amount;
+    });
+
+    // Sum from fixed bills
+    fixedBills.forEach(bill => {
+      totals[bill.category] += bill.amount;
+    });
+
+    return totals;
+  }, [parsedExpenses, fixedBills]);
+
+  // Total Expenses
+  const totalExpenses = parsedExpenses.reduce((sum, e) => sum + e.amount, 0) + fixedBills.reduce((sum, b) => sum + b.amount, 0);
+  const remainingCash = netSalary - totalExpenses;
+
+  // Formatting helpers
+  const fmt = (num: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
+
+  // Handle slider changes ensuring total is always 100%
+  const handleNeedsChange = (val: number) => {
+    setNeedsPct(val);
+    const remaining = 100 - val;
+    // Keep ratio between wants and invest the same, or default to split
+    const currentWantsRatio = wantsPct / (wantsPct + investPct || 1);
+    setWantsPct(Math.round(remaining * currentWantsRatio));
+    setInvestPct(Math.round(remaining * (1 - currentWantsRatio)));
+  };
+
+  const handleAddBill = () => {
+    if (!newBillName || !newBillAmount) return;
+    const amount = parseFloat(newBillAmount.replace(/,/g, ''));
+    if (isNaN(amount)) return;
+
+    setFixedBills(prev => [
+      ...prev,
+      { id: Date.now().toString(), name: newBillName, amount, category: newBillCategory }
+    ]);
+    setNewBillName('');
+    setNewBillAmount('');
+  };
+
+  const removeBill = (id: string) => {
+    setFixedBills(prev => prev.filter(b => b.id !== id));
+  };
+
+  const isTotal100 = needsPct + wantsPct + investPct === 100;
+
+  // 5. Generate Smart Insights using the budget engine
+  const insights = useMemo(() => {
+    return generateSmartInsights(netSalary, budgetTargets, actualSpending);
+  }, [netSalary, budgetTargets, actualSpending]);
+
+  const checklistPresets = useMemo(() => {
+    const defaultPresets = [
+      { name: 'Netflix / Spotify', amt: 400, cat: 'wants' as ExpenseCategory, keywords: ['netflix', 'spotify', 'youtube', 'disney', 'prime'] },
+      { name: 'Phone Bill', amt: 500, cat: 'needs' as ExpenseCategory, keywords: ['phone', 'โทรศัพท์', 'มือถือ', 'รายเดือน', 'ais', 'true', 'dtac'] },
+      { name: 'Parent Allowance', amt: 5000, cat: 'needs' as ExpenseCategory, keywords: ['parent', 'แม่', 'พ่อ'] },
+      { name: 'Pet Care', amt: 1500, cat: 'needs' as ExpenseCategory, keywords: ['pet', 'หมา', 'แมว', 'สัตว์', 'อาหารเม็ด', 'ทรายแมว'] },
+      { name: 'Gym / Fitness', amt: 1500, cat: 'wants' as ExpenseCategory, keywords: ['gym', 'fitness', 'ฟิตเนส', 'ยิม'] },
+      { name: 'Car Insurance', amt: 2000, cat: 'needs' as ExpenseCategory, keywords: ['insurance', 'ประกัน', 'รถ'] },
+      { name: 'Vitamins / Supplements', amt: 1000, cat: 'needs' as ExpenseCategory, keywords: ['vitamin', 'วิตามิน', 'อาหารเสริม'] },
+      { name: 'Coffee Beans', amt: 600, cat: 'wants' as ExpenseCategory, keywords: ['coffee bean', 'เมล็ดกาแฟ'] },
+      { name: 'Game Sub', amt: 300, cat: 'wants' as ExpenseCategory, keywords: ['game', 'psn', 'xbox', 'nintendo', 'steam'] },
+      { name: 'House Supplies', amt: 1000, cat: 'needs' as ExpenseCategory, keywords: ['house', 'ของใช้ในบ้าน', 'ทิชชู่', 'น้ำยา', 'ซักผ้า'] },
+      { name: 'Credit Card Fee', amt: 2000, cat: 'needs' as ExpenseCategory, keywords: ['credit card', 'fee', 'บัตรเครดิต', 'ค่าธรรมเนียม'] },
+      { name: 'Skincare', amt: 1500, cat: 'wants' as ExpenseCategory, keywords: ['skin', 'cosmetic', 'สกินแคร์', 'เครื่องสำอาง'] },
+      { name: 'Haircut', amt: 500, cat: 'needs' as ExpenseCategory, keywords: ['hair', 'ตัดผม'] },
+      { name: 'Monthly Merit', amt: 500, cat: 'wants' as ExpenseCategory, keywords: ['merit', 'ทำบุญ', 'บริจาค'] },
+      { name: 'Software Subs', amt: 500, cat: 'needs' as ExpenseCategory, keywords: ['software', 'adobe', 'icloud', 'google one', 'dropbox'] },
+      { name: 'Condo Fee', amt: 1500, cat: 'needs' as ExpenseCategory, keywords: ['condo', 'ค่าส่วนกลาง'] },
+      { name: 'Tollway', amt: 1000, cat: 'needs' as ExpenseCategory, keywords: ['toll', 'easy pass', 'ทางด่วน'] },
+      { name: 'Drinking Water', amt: 300, cat: 'needs' as ExpenseCategory, keywords: ['water', 'น้ำดื่ม', 'น้ำเปล่า'] },
+      { name: 'Snacks / 7-11', amt: 1000, cat: 'wants' as ExpenseCategory, keywords: ['snack', '7-11', 'ขนม', 'เซเว่น'] },
+      { name: 'Gifts / Bday', amt: 1000, cat: 'wants' as ExpenseCategory, keywords: ['gift', 'ของขวัญ', 'วันเกิด'] }
+    ];
+
+    // Get all current input names to lowercase
+    const currentEntryNames = [
+      ...fixedBills.map(b => b.name.toLowerCase()),
+      ...parsedExpenses.map(e => e.name.toLowerCase())
+    ];
+
+    const remainingPresets = defaultPresets.filter(preset => {
+      // Keep if NO current entry includes ANY of this preset's keywords
+      return !currentEntryNames.some(entry => 
+        preset.keywords.some(kw => entry.includes(kw))
+      );
+    });
+
+    if (remainingPresets.length === 0) return [];
+    
+    const count = Math.min(6, remainingPresets.length);
+    const subset = [];
+    const startIdx = (checklistSeed * count) % remainingPresets.length;
+    
+    for (let i = 0; i < count; i++) {
+        subset.push(remainingPresets[(startIdx + i) % remainingPresets.length]);
+    }
+    
+    return subset;
+  }, [fixedBills, parsedExpenses, checklistSeed]);
+
+  const addPresetToDump = (name: string, amt: number) => {
+    const entry = `\n${name} ${amt}`;
+    setExpenseDump(prev => prev + entry);
+  };
+
+  const handleSaveLocally = () => {
+    setSaveStatus('saving');
+    setTimeout(() => {
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+    }, 500);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+    <main className="min-h-screen py-10 px-4 max-w-5xl mx-auto space-y-8 relative">
+      <header className="text-center space-y-2 mb-12">
+        <h1 className="text-4xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+          Smart Salary Planner
+        </h1>
+        <p className="text-slate-500 font-medium">The lazy way to manage Thai taxes and split your budget.</p>
+      </header>
+
+      <div className="grid md:grid-cols-2 gap-8">
+
+        {/* Left Column: Inputs */}
+        <section className="space-y-6">
+
+          {/* Income Box */}
+          <div className="glass-panel p-6 space-y-4">
+            <div className="flex items-center space-x-3 text-blue-600 mb-2">
+              <Wallet size={24} />
+              <h2 className="text-xl font-bold text-slate-800">1. Income (รายได้)</h2>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-2">Monthly Gross Salary (เงินเดือน)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 50000"
+                  value={grossSalaryStr}
+                  onChange={(e) => setGrossSalaryStr(e.target.value)}
+                  className="premium-input text-2xl font-semibold bg-white text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-2">Side Income - Freelance/Online (รายได้เสริม)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 15000"
+                  value={sideIncomeStr}
+                  onChange={(e) => setSideIncomeStr(e.target.value)}
+                  className="premium-input text-xl font-semibold bg-white text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Auto Deductions Info */}
+            {(grossSalary > 0 || sideIncome > 0) && (
+              <div className="pt-4 border-t border-slate-200 space-y-2 text-sm text-slate-600">
+                <div className="flex justify-between">
+                  <span>Standard Withholding Tax:</span>
+                  <span className="text-red-500 font-medium">-{fmt(tax)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Social Security (SSO 5%):</span>
+                  <span className="text-red-500 font-medium">-{fmt(sso)}</span>
+                </div>
+                <div className="flex justify-between pt-3 text-lg font-bold text-slate-800">
+                  <span>True Net Salary:</span>
+                  <span className="text-emerald-600">{fmt(netSalary)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Fixed Monthly Bills */}
+          <div className="glass-panel p-6 space-y-4">
+            <div className="flex items-center space-x-3 text-amber-600 mb-2">
+              <CalendarPlus size={24} />
+              <h2 className="text-xl font-bold text-slate-800">2. Fixed Monthly Bills (บิลจำเจ)</h2>
+            </div>
+            <p className="text-sm font-medium text-slate-500">Rent, Subscriptions, Car Payments - add them once and they stick.</p>
+
+            {/* Add New Bill Form */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Name (e.g. Netflix)"
+                value={newBillName}
+                onChange={e => setNewBillName(e.target.value)}
+                className="premium-input py-2 px-3 text-sm flex-1"
+              />
+              <input
+                type="text"
+                placeholder="Amount"
+                value={newBillAmount}
+                onChange={e => setNewBillAmount(e.target.value)}
+                className="premium-input py-2 px-3 text-sm w-24"
+              />
+              <select
+                value={newBillCategory}
+                onChange={e => setNewBillCategory(e.target.value as ExpenseCategory)}
+                className="bg-white border border-slate-200 rounded-lg px-2 py-2 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="needs">Needs</option>
+                <option value="wants">Wants</option>
+                <option value="investments">Invest</option>
+              </select>
+              <button 
+                onClick={handleAddBill}
+                className="bg-slate-800 text-white rounded-lg p-2 hover:bg-slate-700 transition"
+              >
+                <Plus size={20} />
+              </button>
+            </div>
+
+            {/* List of Bills */}
+            {fixedBills.length > 0 && (
+              <div className="space-y-2 mt-4">
+                {fixedBills.map(bill => (
+                  <div key={bill.id} className="flex items-center justify-between text-sm py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-slate-700">{bill.name}</span>
+                      <span className="text-xs text-slate-500 uppercase">{bill.category}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-slate-800">{fmt(bill.amount)}</span>
+                      <button onClick={() => removeBill(bill.id)} className="text-slate-400 hover:text-red-500 transition">
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Context Dump Box */}
+          <div className="glass-panel p-6 space-y-4">
+            <div className="flex items-center space-x-3 text-purple-600 mb-2">
+              <Sparkles size={24} />
+              <h2 className="text-xl font-bold text-slate-800">3. Variable Dump Box (ใช้จิปาถะ)</h2>
+            </div>
+            <p className="text-sm font-medium text-slate-500">Just type everything here. We will auto-categorize it.</p>
+            <textarea
+              rows={6}
+              placeholder={'ค่าบ้าน 8000\nค่ากิน 6000\nดูหนัง 1000\nซื้อกองทุน 5000'}
+              value={expenseDump}
+              onChange={(e) => setExpenseDump(e.target.value)}
+              className="premium-input resize-none"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+          </div>
+
+          {/* Don't Forget Checklist */}
+          {checklistPresets.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-2 text-indigo-600">
+                  <CheckSquare size={20} />
+                  <h3 className="font-bold text-slate-800">Don't Forget! 📝</h3>
+                </div>
+                <button 
+                  onClick={() => setChecklistSeed(s => s + 1)}
+                  className="flex items-center gap-1 text-xs px-2 py-1 bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 rounded font-medium transition-colors"
+                >
+                  <Dices size={14} /> Show More
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                Commonly forgotten expenses. Tap any to instantly copy it to your Dump Box.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {checklistPresets.map((item, i) => (
+                  <button
+                    key={i}
+                    onClick={() => addPresetToDump(item.name, item.amt)}
+                    className="text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-full transition-colors flex items-center gap-1"
+                  >
+                    <Plus size={14} /> {item.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Right Column: Dashboard & Visualization */}
+        <section className="space-y-6">
+          <div className="glass-panel p-6 space-y-6 h-full flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+              <div className="flex items-center space-x-3 text-emerald-600">
+                <PieChart size={24} />
+                <h2 className="text-xl font-bold text-slate-800">Custom Plan</h2>
+              </div>
+              <div className="text-right">
+                <span className="text-sm font-medium text-slate-500 block">Remaining Cash</span>
+                <span className={`text-2xl font-extrabold ${remainingCash >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {fmt(remainingCash)}
+                </span>
+              </div>
+            </div>
+
+            {/* Customizer */}
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <div className="flex items-center gap-2 mb-3 text-slate-700 font-semibold text-sm">
+                <Settings2 size={16} /> Budget Ratios
+                {!isTotal100 && <span className="text-red-500 text-xs ml-auto">Must total 100% (Current: {needsPct + wantsPct + investPct}%)</span>}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-slate-600 w-12 cursor-help" title="Needs">จำเป็น</span>
+                  <input type="range" min="0" max="100" value={needsPct} onChange={(e) => handleNeedsChange(parseInt(e.target.value))} className="w-full accent-blue-500" />
+                  <span className="text-xs font-bold w-10 text-right text-slate-700">{needsPct}%</span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-slate-600 w-12 cursor-help" title="Wants">ความสุข</span>
+                  <input type="range" min="0" max="100" value={wantsPct} onChange={(e) => setWantsPct(parseInt(e.target.value))} className="w-full accent-purple-500" />
+                  <span className="text-xs font-bold w-10 text-right text-slate-700">{wantsPct}%</span>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-medium text-slate-600 w-12 cursor-help" title="Invest">อนาคต</span>
+                  <input type="range" min="0" max="100" value={investPct} onChange={(e) => setInvestPct(parseInt(e.target.value))} className="w-full accent-emerald-500" />
+                  <span className="text-xs font-bold w-10 text-right text-slate-700">{investPct}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Budget Categories */}
+            <div className="flex-1 space-y-6">
+              <BudgetBar
+                label={`Needs (จำเป็น) - ${needsPct}%`}
+                target={budgetTargets.needs}
+                actual={actualSpending.needs}
+                color="bg-blue-500"
+              />
+              <BudgetBar
+                label={`Wants (ซื้อความสุข) - ${wantsPct}%`}
+                target={budgetTargets.wants}
+                actual={actualSpending.wants}
+                color="bg-purple-500"
+              />
+              <BudgetBar
+                label={`Invest/Save (อนาคต) - ${investPct}%`}
+                target={budgetTargets.investments}
+                actual={actualSpending.investments}
+                color="bg-emerald-500"
+              />
+            </div>
+
+            {/* Parsed List Preview */}
+            {parsedExpenses.length > 0 && (
+              <div className="pt-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500 mb-3">
+                  Feel free to adjust the category if we guessed it wrong!
+                </p>
+                <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                  <TrendingUp size={16} className="text-blue-500" /> Auto-Categorized Items & Adjustments
+                </h3>
+                <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-2">
+                  {parsedExpenses.map((exp, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs font-medium px-3 py-2 rounded-lg bg-white border border-slate-200 shadow-sm text-slate-700 hover:border-blue-300 transition-colors">
+                      <span className="truncate flex-1 mr-2">{exp.name}: <span className="font-bold text-slate-800">{fmt(exp.amount)}</span></span>
+                      <select 
+                        value={exp.category}
+                        onChange={(e) => setCategoryOverrides(prev => ({...prev, [exp.name]: e.target.value as ExpenseCategory}))}
+                        className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[120px]"
+                      >
+                        <option value="needs">Needs (จำเป็น)</option>
+                        <option value="wants">Wants (ความสุข)</option>
+                        <option value="investments">Invest (ออม/ลงทุน)</option>
+                        <option value="unknown">Unknown (อื่นๆ)</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Smart Insights Panel */}
+            <div className="mt-2 bg-gradient-to-br from-slate-50 to-white rounded-xl border border-slate-200 shadow-sm p-4 overflow-hidden relative">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                <Lightbulb size={64} />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                <Lightbulb size={18} className="text-amber-500" />
+                Smart Insights & Recommendations
+              </h3>
+              
+              <div className="space-y-3 relative z-10">
+                {insights.map(insight => (
+                  <div 
+                    key={insight.id} 
+                    className={`text-xs p-3 rounded-lg border leading-relaxed ${
+                      insight.type === 'warning' ? 'bg-red-50 text-red-800 border-red-100' :
+                      insight.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-100' :
+                      'bg-blue-50 text-blue-800 border-blue-100'
+                    }`}
+                  >
+                    {insight.message}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <button 
+              onClick={handleSaveLocally}
+              className={`btn-primary w-full mt-4 flex items-center justify-center gap-2 disabled:opacity-50 transition-all ${saveStatus === 'saved' ? 'bg-emerald-600 hover:bg-emerald-700 hover:shadow-emerald-200 shadow-emerald-200 ring-emerald-500' : ''}`} 
+              disabled={!isTotal100 || saveStatus === 'saving'}
+            >
+              {saveStatus === 'saving' ? (
+                 <RefreshCw className="animate-spin" size={20} />
+              ) : saveStatus === 'saved' ? (
+                 <><CheckSquare size={20} /> Saved Locally!</>
+              ) : (
+                 <><Save size={20} /> Save Plan Locally</>
+              )}
+            </button>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  );
+}
+
+// Helper Component for Budget Progress Bars
+function BudgetBar({ label, target, actual, color }: { label: string, target: number, actual: number, color: string }) {
+  const isOver = actual > target;
+  
+  // Calculate relative percentages to the container width based on what is largest (actual or target)
+  // If we overspend, the container represents 100% of 'actual'. The Target line shrinks relative to the new max.
+  const maxValue = Math.max(target, actual, 1); // fallback to 1 to avoid div by zero
+  
+  // Example: Target = 100, Actual = 150. Max = 150.
+  // Goal Line is at 66% (100/150).
+  // Safe Fill is at 66%. Overspend Fill is at 34% (50/150).
+  
+  // Example Target = 100, Actual = 50. Max = 100.
+  // Goal Line at 100%. Safe Fill at 50%. Overspend Fill at 0%.
+
+  const targetLinePct = (target / maxValue) * 100;
+  
+  const safeActualAmount = Math.min(actual, target);
+  const overActualAmount = Math.max(0, actual - target);
+  
+  const safeFillPct = (safeActualAmount / maxValue) * 100;
+  const overFillPct = (overActualAmount / maxValue) * 100;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between text-sm font-medium">
+        <span className="text-slate-700">{label}</span>
+        <span className="text-slate-500">
+          <span className={isOver ? 'text-red-500 font-bold' : 'text-slate-800 font-bold'}>
+            {new Intl.NumberFormat('th-TH').format(actual)}
+          </span>
+          {' / '}{new Intl.NumberFormat('th-TH').format(target)}
+        </span>
+      </div>
+      
+      {/* Container Background */}
+      <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200/60 relative flex">
+        
+        {/* Safe Fill (Target color) */}
+        <div 
+          className={`h-full ${color} transition-all duration-500`}
+          style={{ width: `${safeFillPct}%` }}
+        />
+        
+        {/* Overspend Fill (Red) */}
+        {isOver && (
+          <div 
+            className="h-full bg-red-500 transition-all duration-500 opacity-90"
+            style={{ width: `${overFillPct}%` }}
+          />
+        )}
+
+        {/* Goal Target Vertical Marker overlaid on top */}
+        {target > 0 && (
+          <div 
+            className="absolute top-0 bottom-0 bg-slate-800 w-[2px] z-10 opacity-60"
+            style={{ left: `${targetLinePct}%` }}
+          />
+        )}
+      </div>
     </div>
   );
 }
