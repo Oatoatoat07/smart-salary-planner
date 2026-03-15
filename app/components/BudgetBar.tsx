@@ -1,5 +1,17 @@
 export function BudgetBar({ label, target, actual, color }: { label: string, target: number, actual: number, color: string }) {
+  // Don't render anything until income is entered
+  if (target === 0 && actual === 0) return (
+    <div className="space-y-1 opacity-40">
+      <div className="flex justify-between text-sm font-medium">
+        <span className="text-slate-500">{label}</span>
+        <span className="text-slate-400 text-xs italic">Enter income to see targets</span>
+      </div>
+      <div className="h-3 w-full bg-slate-100 rounded-full border border-slate-200" />
+    </div>
+  );
+
   const isOver = actual > target;
+
   
   // Calculate relative percentages to the container width based on what is largest (actual or target)
   const maxValue = Math.max(target, actual, 1);

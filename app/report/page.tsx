@@ -88,17 +88,28 @@ export default function ReportDashboard() {
   if (!isLoaded) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
   if (grossSalary === 0 && sideIncome === 0) {
-      return (
-          <main className="min-h-screen py-20 px-4 max-w-2xl mx-auto text-center space-y-6">
-              <div className="bg-white p-10 rounded-2xl shadow-sm border border-slate-200">
-                 <AlertTriangle size={48} className="mx-auto text-amber-500 mb-4" />
-                 <h2 className="text-2xl font-bold text-slate-800 mb-2">No Data Found</h2>
-                 <p className="text-slate-500 mb-6">It looks like you haven't set up your salary or budget yet.</p>
-                 <Link href="/" className="btn-primary inline-flex">Go to Planner</Link>
-              </div>
-          </main>
-      )
+    return (
+      <main className="min-h-[70vh] py-20 px-4 max-w-2xl mx-auto text-center space-y-6 flex flex-col items-center justify-center">
+        <div className="bg-white p-10 rounded-2xl shadow-sm border border-slate-200 w-full">
+          <div className="text-6xl mb-4">📊</div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">Nothing to report yet!</h2>
+          <p className="text-slate-500 mb-3 leading-relaxed">
+            Go to the <strong>Plan &amp; Edit</strong> page to enter your salary and expenses. Your Summary Report will automatically appear here as you type — no saving required!
+          </p>
+          <ol className="text-sm text-slate-500 text-left space-y-1 mb-8 bg-slate-50 rounded-xl p-5 border border-slate-200">
+            <li><span className="font-bold text-slate-700">1.</span> Enter your monthly salary</li>
+            <li><span className="font-bold text-slate-700">2.</span> Add your fixed bills (rent, subscriptions, etc.)</li>
+            <li><span className="font-bold text-slate-700">3.</span> Paste your variable expenses in the Dump Box</li>
+            <li><span className="font-bold text-slate-700">4.</span> Come back here to see your financial health!</li>
+          </ol>
+          <Link href="/" className="btn-primary inline-flex items-center gap-2">
+            ✏️ Start Planning
+          </Link>
+        </div>
+      </main>
+    )
   }
+
 
   return (
     <main className="min-h-screen py-10 px-4 max-w-5xl mx-auto space-y-8">

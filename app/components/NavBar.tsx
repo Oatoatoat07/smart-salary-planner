@@ -10,10 +10,10 @@ export default function NavBar() {
   return (
     <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200">
       <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
-        <div className="font-extrabold text-xl bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600 tracking-tight flex items-center gap-2">
-          <span>SP</span>
-        </div>
-        
+        <Link href="/" className="font-extrabold text-xl bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600 tracking-tight flex items-center gap-2 hover:opacity-80 transition-opacity">
+          SP
+        </Link>
+
         <div className="flex space-x-1 sm:space-x-2 bg-slate-100 p-1 rounded-xl">
           <Link
             href="/"

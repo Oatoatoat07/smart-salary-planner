@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
-import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, RefreshCw, Save } from 'lucide-react';
+import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices } from 'lucide-react';
 import { BudgetBar } from './components/BudgetBar';
 
 interface FixedBill {
@@ -33,7 +33,6 @@ export default function Dashboard() {
 
   const [checklistSeed, setChecklistSeed] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   // Load all state from local storage on mount
   useEffect(() => {
@@ -201,13 +200,7 @@ export default function Dashboard() {
     setExpenseDump(prev => prev + entry);
   };
 
-  const handleSaveLocally = () => {
-    setSaveStatus('saving');
-    setTimeout(() => {
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
-    }, 500);
-  };
+  const handleSaveLocally = undefined; // Auto-saves via useEffect
 
   return (
     <main className="min-h-screen py-10 px-4 max-w-5xl mx-auto space-y-8 relative">
@@ -265,10 +258,17 @@ export default function Dashboard() {
                   <span>Social Security (SSO 5%):</span>
                   <span className="text-red-500 font-medium">-{fmt(sso)}</span>
                 </div>
-                <div className="flex justify-between pt-3 text-lg font-bold text-slate-800">
-                  <span>True Net Salary:</span>
-                  <span className="text-emerald-600">{fmt(netSalary)}</span>
+              </div>
+            )}
+
+            {/* Prominent Net Take-Home Card */}
+            {netSalary > 0 && (
+              <div className="mt-4 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">✅ True Take-Home Pay</p>
+                  <p className="text-xs text-emerald-600 mt-0.5">After SSO &amp; estimated tax</p>
                 </div>
+                <span className="text-2xl font-extrabold text-emerald-700">{fmt(netSalary)}</span>
               </div>
             )}
           </div>
@@ -281,21 +281,23 @@ export default function Dashboard() {
             </div>
             <p className="text-sm font-medium text-slate-500">Rent, Subscriptions, Car Payments - add them once and they stick.</p>
 
-            {/* Add New Bill Form */}
-            <div className="flex gap-2">
+            {/* Add New Bill Form — responsive grid, stacks on mobile */}
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2">
               <input
                 type="text"
                 placeholder="Name (e.g. Netflix)"
                 value={newBillName}
                 onChange={e => setNewBillName(e.target.value)}
-                className="premium-input py-2 px-3 text-sm flex-1"
+                onKeyDown={e => e.key === 'Enter' && handleAddBill()}
+                className="premium-input py-2 px-3 text-sm"
               />
               <input
                 type="text"
                 placeholder="Amount"
                 value={newBillAmount}
                 onChange={e => setNewBillAmount(e.target.value)}
-                className="premium-input py-2 px-3 text-sm w-24"
+                onKeyDown={e => e.key === 'Enter' && handleAddBill()}
+                className="premium-input py-2 px-3 text-sm"
               />
               <select
                 value={newBillCategory}
@@ -308,7 +310,7 @@ export default function Dashboard() {
               </select>
               <button 
                 onClick={handleAddBill}
-                className="bg-slate-800 text-white rounded-lg p-2 hover:bg-slate-700 transition"
+                className="bg-slate-800 text-white rounded-lg p-2 hover:bg-slate-700 transition flex items-center justify-center"
               >
                 <Plus size={20} />
               </button>
@@ -505,20 +507,12 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Save Button */}
-            <button 
-              onClick={handleSaveLocally}
-              className={`btn-primary w-full mt-4 flex items-center justify-center gap-2 disabled:opacity-50 transition-all ${saveStatus === 'saved' ? 'bg-emerald-600 hover:bg-emerald-700 hover:shadow-emerald-200 shadow-emerald-200 ring-emerald-500' : ''}`} 
-              disabled={!isTotal100 || saveStatus === 'saving'}
-            >
-              {saveStatus === 'saving' ? (
-                 <RefreshCw className="animate-spin" size={20} />
-              ) : saveStatus === 'saved' ? (
-                 <><CheckSquare size={20} /> Saved Locally!</>
-              ) : (
-                 <><Save size={20} /> Save Plan Locally</>
-              )}
-            </button>
+            {/* Auto-save indicator */}
+            {isLoaded && (
+              <p className="text-xs text-center text-slate-400 mt-4 flex items-center justify-center gap-1">
+                <CheckSquare size={12} className="text-emerald-400" /> Auto-saved to your browser
+              </p>
+            )}
           </div>
         </section>
 
