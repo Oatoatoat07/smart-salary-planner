@@ -4,7 +4,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
-import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check, List } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
+import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check, List, Cloud, CloudOff, Loader2 } from 'lucide-react';
 import { BudgetBar } from './components/BudgetBar';
 
 interface FixedBill {
@@ -39,36 +40,104 @@ export default function Dashboard() {
 
   const [checklistSeed, setChecklistSeed] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'synced'>('local');
 
-  // Load all state from local storage on mount
+  // Load all state from local storage and/or Supabase on mount
   useEffect(() => {
-    const savedBills = localStorage.getItem('salaryPlannerFixedBills');
-    if (savedBills) {
-      try { setFixedBills(JSON.parse(savedBills)); } catch (e) { }
-    }
-    
-    const savedState = localStorage.getItem('salaryPlannerState');
-    if (savedState) {
-        try {
-            const data = JSON.parse(savedState);
-            if (data.grossSalaryStr) setGrossSalaryStr(data.grossSalaryStr);
-            if (data.sideIncomeStr) setSideIncomeStr(data.sideIncomeStr);
-            if (data.expenseDump !== undefined) setExpenseDump(data.expenseDump);
-            if (data.needsPct) setNeedsPct(data.needsPct);
-            if (data.wantsPct) setWantsPct(data.wantsPct);
-            if (data.investPct) setInvestPct(data.investPct);
-            if (data.categoryOverrides) setCategoryOverrides(data.categoryOverrides);
-        } catch (e) {}
-    }
-    setIsLoaded(true);
+    const loadData = async () => {
+      // 1. Load Local Storage first for speed
+      const savedBills = localStorage.getItem('salaryPlannerFixedBills');
+      let localBills = [];
+      if (savedBills) {
+        try { localBills = JSON.parse(savedBills); setFixedBills(localBills); } catch (e) { }
+      }
+      
+      const savedStateStr = localStorage.getItem('salaryPlannerState');
+      let localStateParams = null;
+      if (savedStateStr) {
+          try {
+              const data = JSON.parse(savedStateStr);
+              localStateParams = data;
+              if (data.grossSalaryStr) setGrossSalaryStr(data.grossSalaryStr);
+              if (data.sideIncomeStr) setSideIncomeStr(data.sideIncomeStr);
+              if (data.expenseDump !== undefined) setExpenseDump(data.expenseDump);
+              if (data.needsPct) setNeedsPct(data.needsPct);
+              if (data.wantsPct) setWantsPct(data.wantsPct);
+              if (data.investPct) setInvestPct(data.investPct);
+              if (data.categoryOverrides) setCategoryOverrides(data.categoryOverrides);
+          } catch (e) {}
+      }
+
+      // 2. Check Supabase for cloud data
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setSyncStatus('syncing');
+        const { data: cloudData, error } = await supabase
+          .from('user_budgets')
+          .select('state')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (cloudData && cloudData.state) {
+          // Overwrite local with cloud
+          const state = cloudData.state as any;
+          if (state.fixedBills) setFixedBills(state.fixedBills);
+          if (state.grossSalaryStr) setGrossSalaryStr(state.grossSalaryStr);
+          if (state.sideIncomeStr) setSideIncomeStr(state.sideIncomeStr);
+          if (state.expenseDump !== undefined) setExpenseDump(state.expenseDump);
+          if (state.needsPct) setNeedsPct(state.needsPct);
+          if (state.wantsPct) setWantsPct(state.wantsPct);
+          if (state.investPct) setInvestPct(state.investPct);
+          if (state.categoryOverrides) setCategoryOverrides(state.categoryOverrides);
+          setSyncStatus('synced');
+        } else {
+           setSyncStatus('local'); // New user or empty cloud
+        }
+      }
+      
+      setIsLoaded(true);
+    };
+
+    loadData();
   }, []);
 
-  // Save to local storage whenever core state changes
+  // Save to local storage instantly, sync to Supabase debounced
   useEffect(() => {
     if (!isLoaded) return;
+    
+    // 1. Instant save to local storage
     localStorage.setItem('salaryPlannerFixedBills', JSON.stringify(fixedBills));
-    const data = { grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides };
-    localStorage.setItem('salaryPlannerState', JSON.stringify(data));
+    const localData = { grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides };
+    localStorage.setItem('salaryPlannerState', JSON.stringify(localData));
+
+    // 2. Debounced save to Supabase
+    const cloudSyncTimer = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setSyncStatus('syncing');
+        const fullCloudPayload = {
+          ...localData,
+          fixedBills
+        };
+
+        const { error } = await supabase
+          .from('user_budgets')
+          .upsert({ 
+            user_id: session.user.id, 
+            state: fullCloudPayload,
+            updated_at: new Date().toISOString()
+          });
+
+        if (!error) {
+          setSyncStatus('synced');
+        } else {
+          setSyncStatus('local'); // Failed to sync
+          console.error("Cloud sync failed:", error);
+        }
+      }
+    }, 1500); // Wait 1.5s after typing stops before pushing to cloud
+
+    return () => clearTimeout(cloudSyncTimer);
   }, [fixedBills, grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides, isLoaded]);
 
   // 1. Calculate the Income Side (Thai Tax & SSO)
@@ -580,9 +649,15 @@ export default function Dashboard() {
 
             {/* Auto-save indicator */}
             {isLoaded && (
-              <p className="text-xs text-center text-slate-400 mt-4 flex items-center justify-center gap-1">
-                <CheckSquare size={12} className="text-emerald-400" /> Auto-saved to your browser
-              </p>
+              <div className="text-xs text-center mt-4 flex items-center justify-center gap-1">
+                {syncStatus === 'syncing' ? (
+                  <span className="text-blue-500 flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Saving to cloud...</span>
+                ) : syncStatus === 'synced' ? (
+                  <span className="text-emerald-500 flex items-center gap-1.5"><Cloud size={12} /> Backed up to cloud</span>
+                ) : (
+                  <span className="text-slate-400 flex items-center gap-1.5"><CloudOff size={12} /> Local browser save only</span>
+                )}
+              </div>
             )}
           </div>
         </section>
