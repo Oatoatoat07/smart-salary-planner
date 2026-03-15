@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
-import { PieChart, Lightbulb, Wallet, CheckCircle2, AlertTriangle, TrendingDown } from 'lucide-react';
+import { PieChart, Lightbulb, Wallet, CheckCircle2, AlertTriangle, TrendingDown, List, X, Edit2, Check } from 'lucide-react';
 import { BudgetBar } from '../components/BudgetBar';
 import Link from 'next/link';
 
@@ -28,6 +28,15 @@ export default function ReportDashboard() {
   const [investPct, setInvestPct] = useState<number>(20);
   
   const [fixedBills, setFixedBills] = useState<FixedBill[]>([]);
+  const [categoryOverrides, setCategoryOverrides] = useState<Record<string, ExpenseCategory>>({});
+  
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Editing State for Fixed Bills
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
+  const [editBillName, setEditBillName] = useState('');
+  const [editBillAmount, setEditBillAmount] = useState('');
+  const [editBillCategory, setEditBillCategory] = useState<ExpenseCategory>('needs');
 
   // Load state from local storage on mount
   useEffect(() => {
@@ -46,10 +55,19 @@ export default function ReportDashboard() {
             if (data.needsPct) setNeedsPct(data.needsPct);
             if (data.wantsPct) setWantsPct(data.wantsPct);
             if (data.investPct) setInvestPct(data.investPct);
+            if (data.categoryOverrides) setCategoryOverrides(data.categoryOverrides);
         } catch (e) {}
     }
     setIsLoaded(true);
   }, []);
+
+  // Save to local storage whenever core state changes (to sync edits back to planner)
+  useEffect(() => {
+    if (!isLoaded) return;
+    localStorage.setItem('salaryPlannerFixedBills', JSON.stringify(fixedBills));
+    const data = { grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides };
+    localStorage.setItem('salaryPlannerState', JSON.stringify(data));
+  }, [fixedBills, grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides, isLoaded]);
 
   // Compute all metrics exactly as in page.tsx
   const grossSalary = parseFloat(grossSalaryStr.replace(/,/g, '')) || 0;
@@ -57,8 +75,12 @@ export default function ReportDashboard() {
   const netSalary = calculateNetSalary(grossSalary, sideIncome);
 
   const parsedExpenses = useMemo(() => {
-    return parseExpenseDump(expenseDump); // Assuming no overrides for simplicity on report, or we could load overrides too
-  }, [expenseDump]);
+    const baseParsed = parseExpenseDump(expenseDump);
+    return baseParsed.map(exp => ({
+      ...exp,
+      category: categoryOverrides[exp.name] || exp.category
+    }));
+  }, [expenseDump, categoryOverrides]);
 
   const budgetTargets = {
     needs: netSalary * (needsPct / 100),
@@ -84,6 +106,36 @@ export default function ReportDashboard() {
 
   const totalFixedAmount = fixedBills.reduce((sum, b) => sum + b.amount, 0);
   const totalVariableAmount = parsedExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+  // Modal actions
+  const openModal = () => setIsModalOpen(true);
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setEditingBillId(null);
+  };
+
+  const removeBill = (id: string) => {
+    setFixedBills(prev => prev.filter(b => b.id !== id));
+    if (editingBillId === id) setEditingBillId(null);
+  };
+
+  const startEditingBill = (bill: FixedBill) => {
+    setEditingBillId(bill.id);
+    setEditBillName(bill.name);
+    setEditBillAmount(bill.amount.toString());
+    setEditBillCategory(bill.category);
+  };
+
+  const saveEditedBill = () => {
+    if (!editBillName || !editBillAmount) return;
+    const amount = parseFloat(editBillAmount.replace(/,/g, ''));
+    if (isNaN(amount)) return;
+
+    setFixedBills(prev => 
+      prev.map(b => b.id === editingBillId ? { ...b, name: editBillName, amount, category: editBillCategory } : b)
+    );
+    setEditingBillId(null);
+  };
 
   if (!isLoaded) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
 
@@ -113,12 +165,20 @@ export default function ReportDashboard() {
 
   return (
     <main className="min-h-screen py-10 px-4 max-w-5xl mx-auto space-y-8">
-      <header className="text-center space-y-2 mb-8">
-        <h1 className="text-4xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-blue-600">
-          Executive Summary
-        </h1>
-        <p className="text-slate-500 font-medium tracking-wide">Your monthly financial health at a glance.</p>
-      </header>
+      <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+        <div className="text-center md:text-left space-y-2">
+          <h1 className="text-4xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-blue-600 pb-1">
+            Executive Summary
+          </h1>
+          <p className="text-slate-500 font-medium tracking-wide">Your monthly financial health at a glance.</p>
+        </div>
+        <button 
+          onClick={openModal} 
+          className="flex items-center gap-2 text-sm bg-white hover:bg-slate-50 border border-slate-200 shadow-sm rounded-xl px-4 py-2.5 text-slate-700 font-semibold transition-all hover:border-slate-300"
+        >
+             <List size={18} /> View All Expenses
+        </button>
+      </div>
 
       {/* Top Hero Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -220,6 +280,117 @@ export default function ReportDashboard() {
             </div>
         </div>
       </div>
+
+      {/* Expenses Popup Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pb-[env(safe-area-inset-bottom)]">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeModal}></div>
+          <div className="relative bg-slate-50 rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 bg-white border-b border-slate-200 shrink-0">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><List size={20} className="text-blue-500" /> All Expenses</h2>
+              <button onClick={closeModal} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"><X size={20} /></button>
+            </div>
+            
+            {/* Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-8">
+              {/* Fixed Bills Section */}
+              <section>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-slate-700 text-lg">Fixed Monthly Bills</h3>
+                  <span className="text-sm font-semibold text-slate-500">{fmt(totalFixedAmount)}</span>
+                </div>
+                {fixedBills.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic bg-white p-4 rounded-xl border border-dashed border-slate-300">No fixed bills added.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {fixedBills.map(bill => (
+                      <div key={bill.id} className="flex flex-col sm:flex-row sm:items-center justify-between text-sm py-3 px-4 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-blue-200 transition-colors gap-3">
+                        {editingBillId === bill.id ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2 w-full items-center">
+                            <input type="text" value={editBillName} onChange={e => setEditBillName(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveEditedBill()} className="premium-input py-1.5 px-3 text-sm" placeholder="Name" />
+                            <input type="text" value={editBillAmount} onChange={e => setEditBillAmount(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveEditedBill()} className="premium-input py-1.5 px-3 text-sm w-full sm:w-24" placeholder="Amount" />
+                            <select value={editBillCategory} onChange={e => setEditBillCategory(e.target.value as ExpenseCategory)} className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-sm text-slate-700 outline-none">
+                              <option value="needs">Needs</option>
+                              <option value="wants">Wants</option>
+                              <option value="investments">Invest</option>
+                            </select>
+                            <button onClick={saveEditedBill} className="text-emerald-600 hover:text-emerald-700 p-1.5 sm:p-2 flex items-center justify-center bg-emerald-50 rounded-lg border border-emerald-100 cursor-pointer">
+                              <Check size={18} />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-800 text-base">{bill.name}</span>
+                              <span className="text-xs text-slate-500 uppercase tracking-wider mt-0.5">{bill.category}</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="font-extrabold text-slate-800 text-base">{fmt(bill.amount)}</span>
+                              <div className="flex items-center gap-1 border-l border-slate-200 pl-4">
+                                <button onClick={() => startEditingBill(bill)} className="text-slate-400 hover:text-blue-500 p-1.5 rounded-md hover:bg-blue-50 transition"><Edit2 size={16} /></button>
+                                <button onClick={() => removeBill(bill.id)} className="text-slate-400 hover:text-red-500 p-1.5 rounded-md hover:bg-red-50 transition"><X size={16} /></button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* Variable Expenses Section */}
+              <section>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-slate-700 text-lg">Variable (Dump Box)</h3>
+                  <span className="text-sm font-semibold text-slate-500">{fmt(totalVariableAmount)}</span>
+                </div>
+                {parsedExpenses.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic bg-white p-4 rounded-xl border border-dashed border-slate-300">No variable expenses added.</p>
+                ) : (
+                  <>
+                    <p className="text-xs text-blue-800 bg-blue-100/50 p-3 rounded-xl mb-4 flex gap-2 items-start border border-blue-200">
+                      <span className="text-blue-600 text-base">ℹ️</span> 
+                      <span>To edit the name or amount of these items, edit your text in the Dump Box on the main Planner page. You can adjust the categories below.</span>
+                    </p>
+                    <div className="space-y-2">
+                       {parsedExpenses.map((exp, i) => (
+                         <div key={i} className="flex flex-col sm:flex-row sm:items-center justify-between text-sm py-3 px-4 bg-white border border-slate-200 rounded-xl shadow-sm gap-3">
+                           <div className="flex flex-col">
+                              <span className="font-bold text-slate-800 text-base">{exp.name}</span>
+                              <span className="text-xs text-slate-500 uppercase tracking-wider mt-0.5">{exp.category}</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="font-extrabold text-slate-800 text-base shrink-0">{fmt(exp.amount)}</span>
+                              <div className="border-l border-slate-200 pl-4 w-full sm:w-auto">
+                                <select 
+                                  value={exp.category}
+                                  onChange={(e) => setCategoryOverrides(prev => ({...prev, [exp.name]: e.target.value as ExpenseCategory}))}
+                                  className="w-full sm:w-auto bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[100px]"
+                                >
+                                  <option value="needs">Needs</option>
+                                  <option value="wants">Wants</option>
+                                  <option value="investments">Invest</option>
+                                  <option value="unknown">Unknown</option>
+                                </select>
+                              </div>
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                  </>
+                )}
+              </section>
+            </div>
+            
+            {/* Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 text-right shrink-0">
+              <button justify-end onClick={closeModal} className="btn-primary py-2 px-8 shadow-md">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

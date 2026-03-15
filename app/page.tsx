@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
-import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices } from 'lucide-react';
+import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check } from 'lucide-react';
 import { BudgetBar } from './components/BudgetBar';
 
 interface FixedBill {
@@ -25,6 +25,12 @@ export default function Dashboard() {
   const [newBillName, setNewBillName] = useState('');
   const [newBillAmount, setNewBillAmount] = useState('');
   const [newBillCategory, setNewBillCategory] = useState<ExpenseCategory>('needs');
+
+  // Editing State for Fixed Bills
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
+  const [editBillName, setEditBillName] = useState('');
+  const [editBillAmount, setEditBillAmount] = useState('');
+  const [editBillCategory, setEditBillCategory] = useState<ExpenseCategory>('needs');
 
   // Custom Budget Percentages
   const [needsPct, setNeedsPct] = useState<number>(50);
@@ -51,6 +57,7 @@ export default function Dashboard() {
             if (data.needsPct) setNeedsPct(data.needsPct);
             if (data.wantsPct) setWantsPct(data.wantsPct);
             if (data.investPct) setInvestPct(data.investPct);
+            if (data.categoryOverrides) setCategoryOverrides(data.categoryOverrides);
         } catch (e) {}
     }
     setIsLoaded(true);
@@ -60,9 +67,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isLoaded) return;
     localStorage.setItem('salaryPlannerFixedBills', JSON.stringify(fixedBills));
-    const data = { grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct };
+    const data = { grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides };
     localStorage.setItem('salaryPlannerState', JSON.stringify(data));
-  }, [fixedBills, grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, isLoaded]);
+  }, [fixedBills, grossSalaryStr, sideIncomeStr, expenseDump, needsPct, wantsPct, investPct, categoryOverrides, isLoaded]);
 
   // 1. Calculate the Income Side (Thai Tax & SSO)
   const grossSalary = parseFloat(grossSalaryStr.replace(/,/g, '')) || 0;
@@ -136,6 +143,25 @@ export default function Dashboard() {
 
   const removeBill = (id: string) => {
     setFixedBills(prev => prev.filter(b => b.id !== id));
+    if (editingBillId === id) setEditingBillId(null);
+  };
+
+  const startEditingBill = (bill: FixedBill) => {
+    setEditingBillId(bill.id);
+    setEditBillName(bill.name);
+    setEditBillAmount(bill.amount.toString());
+    setEditBillCategory(bill.category);
+  };
+
+  const saveEditedBill = () => {
+    if (!editBillName || !editBillAmount) return;
+    const amount = parseFloat(editBillAmount.replace(/,/g, ''));
+    if (isNaN(amount)) return;
+
+    setFixedBills(prev => 
+      prev.map(b => b.id === editingBillId ? { ...b, name: editBillName, amount, category: editBillCategory } : b)
+    );
+    setEditingBillId(null);
   };
 
   const isTotal100 = needsPct + wantsPct + investPct === 100;
@@ -321,16 +347,56 @@ export default function Dashboard() {
               <div className="space-y-2 mt-4">
                 {fixedBills.map(bill => (
                   <div key={bill.id} className="flex items-center justify-between text-sm py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-slate-700">{bill.name}</span>
-                      <span className="text-xs text-slate-500 uppercase">{bill.category}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-slate-800">{fmt(bill.amount)}</span>
-                      <button onClick={() => removeBill(bill.id)} className="text-slate-400 hover:text-red-500 transition">
-                        <X size={16} />
-                      </button>
-                    </div>
+                    {editingBillId === bill.id ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2 w-full items-center">
+                        <input
+                          type="text"
+                          value={editBillName}
+                          onChange={e => setEditBillName(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && saveEditedBill()}
+                          className="premium-input py-1.5 px-2 text-xs"
+                          placeholder="Name"
+                        />
+                        <input
+                          type="text"
+                          value={editBillAmount}
+                          onChange={e => setEditBillAmount(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && saveEditedBill()}
+                          className="premium-input py-1.5 px-2 text-xs w-20"
+                          placeholder="Amount"
+                        />
+                        <select
+                          value={editBillCategory}
+                          onChange={e => setEditBillCategory(e.target.value as ExpenseCategory)}
+                          className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs text-slate-700 outline-none"
+                        >
+                          <option value="needs">Needs</option>
+                          <option value="wants">Wants</option>
+                          <option value="investments">Invest</option>
+                        </select>
+                        <button onClick={saveEditedBill} className="text-emerald-600 hover:text-emerald-700 p-1 flex items-center justify-center bg-emerald-100 rounded">
+                          <Check size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-700">{bill.name}</span>
+                          <span className="text-xs text-slate-500 uppercase">{bill.category}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-slate-800">{fmt(bill.amount)}</span>
+                          <div className="flex items-center gap-1 border-l border-slate-200 pl-3 ml-1">
+                            <button onClick={() => startEditingBill(bill)} className="text-slate-400 hover:text-blue-500 transition p-1">
+                              <Edit2 size={16} />
+                            </button>
+                            <button onClick={() => removeBill(bill.id)} className="text-slate-400 hover:text-red-500 transition p-1">
+                              <X size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
