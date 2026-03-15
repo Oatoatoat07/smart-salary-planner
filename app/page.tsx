@@ -118,6 +118,24 @@ export default function Dashboard() {
   // Formatting helpers
   const fmt = (num: number) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
 
+  // Unified, Sorted Expenses for the Right Panel
+  const unifiedExpenses = useMemo(() => {
+    const list = [
+      ...fixedBills.map(b => ({ ...b, type: 'fixed' as const })),
+      ...parsedExpenses.map(e => ({ ...e, id: `dump-${e.name}`, type: 'variable' as const }))
+    ];
+    
+    // Sort High to Low
+    list.sort((a, b) => b.amount - a.amount);
+    
+    return {
+      needs: list.filter(e => e.category === 'needs'),
+      wants: list.filter(e => e.category === 'wants'),
+      investments: list.filter(e => e.category === 'investments'),
+      unknown: list.filter(e => e.category === 'unknown')
+    };
+  }, [fixedBills, parsedExpenses]);
+
   // Handle slider changes ensuring total is always 100%
   const handleNeedsChange = (val: number) => {
     setNeedsPct(val);
@@ -342,65 +360,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* List of Bills */}
-            {fixedBills.length > 0 && (
-              <div className="space-y-2 mt-4">
-                {fixedBills.map(bill => (
-                  <div key={bill.id} className="flex items-center justify-between text-sm py-2 px-3 bg-slate-50 border border-slate-200 rounded-lg">
-                    {editingBillId === bill.id ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2 w-full items-center">
-                        <input
-                          type="text"
-                          value={editBillName}
-                          onChange={e => setEditBillName(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && saveEditedBill()}
-                          className="premium-input py-1.5 px-2 text-xs"
-                          placeholder="Name"
-                        />
-                        <input
-                          type="text"
-                          value={editBillAmount}
-                          onChange={e => setEditBillAmount(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && saveEditedBill()}
-                          className="premium-input py-1.5 px-2 text-xs w-20"
-                          placeholder="Amount"
-                        />
-                        <select
-                          value={editBillCategory}
-                          onChange={e => setEditBillCategory(e.target.value as ExpenseCategory)}
-                          className="bg-white border border-slate-200 rounded px-2 py-1.5 text-xs text-slate-700 outline-none"
-                        >
-                          <option value="needs">Needs</option>
-                          <option value="wants">Wants</option>
-                          <option value="investments">Invest</option>
-                        </select>
-                        <button onClick={saveEditedBill} className="text-emerald-600 hover:text-emerald-700 p-1 flex items-center justify-center bg-emerald-100 rounded">
-                          <Check size={16} />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-700">{bill.name}</span>
-                          <span className="text-xs text-slate-500 uppercase">{bill.category}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="font-bold text-slate-800">{fmt(bill.amount)}</span>
-                          <div className="flex items-center gap-1 border-l border-slate-200 pl-3 ml-1">
-                            <button onClick={() => startEditingBill(bill)} className="text-slate-400 hover:text-blue-500 transition p-1">
-                              <Edit2 size={16} />
-                            </button>
-                            <button onClick={() => removeBill(bill.id)} className="text-slate-400 hover:text-red-500 transition p-1">
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* List of Bills removed from here — unified onto right panel */}
           </div>
 
           {/* Context Dump Box */}
@@ -518,34 +478,79 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Parsed List Preview */}
-            {parsedExpenses.length > 0 && (
-              <div className="pt-4 border-t border-slate-200">
-                <p className="text-sm text-slate-500 mb-3">
-                  Feel free to adjust the category if we guessed it wrong!
-                </p>
-                <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                  <TrendingUp size={16} className="text-blue-500" /> Auto-Categorized Items & Adjustments
-                </h3>
-                <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-2">
-                  {parsedExpenses.map((exp, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs font-medium px-3 py-2 rounded-lg bg-white border border-slate-200 shadow-sm text-slate-700 hover:border-blue-300 transition-colors">
-                      <span className="truncate flex-1 mr-2">{exp.name}: <span className="font-bold text-slate-800">{fmt(exp.amount)}</span></span>
-                      <select 
-                        value={exp.category}
-                        onChange={(e) => setCategoryOverrides(prev => ({...prev, [exp.name]: e.target.value as ExpenseCategory}))}
-                        className="bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[120px]"
-                      >
-                        <option value="needs">Needs (จำเป็น)</option>
-                        <option value="wants">Wants (ความสุข)</option>
-                        <option value="investments">Invest (ออม/ลงทุน)</option>
-                        <option value="unknown">Unknown (อื่นๆ)</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
+            {/* Unified Categorized Expense List */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+              <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2 text-sm font-bold text-slate-800">
+                <List size={18} className="text-slate-500" />
+                All Expenses (Sorted High to Low)
               </div>
-            )}
+              
+              <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+                {/* Helper for rendering a unified section */}
+                {[
+                  { title: "Needs (จำเป็น)", data: unifiedExpenses.needs, color: "text-blue-600", bg: "bg-blue-50" },
+                  { title: "Wants (ซื้อความสุข)", data: unifiedExpenses.wants, color: "text-purple-600", bg: "bg-purple-50" },
+                  { title: "Investments (อนาคต)", data: unifiedExpenses.investments, color: "text-emerald-600", bg: "bg-emerald-50" },
+                  { title: "Uncategorized (อื่นๆ)", data: unifiedExpenses.unknown, color: "text-slate-600", bg: "bg-slate-100" },
+                ].map((section, idx) => section.data.length > 0 && (
+                  <div key={idx} className="pb-2">
+                    <div className={`text-xs font-bold uppercase tracking-wider py-2 px-4 ${section.bg} ${section.color} sticky top-0 z-10 backdrop-blur-md opacity-90`}>
+                      {section.title}
+                    </div>
+                    <div>
+                      {section.data.map(exp => (
+                        <div key={exp.id} className="group relative flex items-center justify-between px-4 py-2 hover:bg-slate-50 transition-colors">
+                          {exp.type === 'fixed' && editingBillId === exp.id ? (
+                            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 w-full items-center p-1">
+                              <input type="text" value={editBillName} onChange={e => setEditBillName(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-xs" />
+                              <input type="text" value={editBillAmount} onChange={e => setEditBillAmount(e.target.value)} className="bg-white border border-slate-200 rounded px-2 py-1 text-xs w-20" />
+                              <select value={editBillCategory} onChange={e => setEditBillCategory(e.target.value as ExpenseCategory)} className="bg-white border border-slate-200 rounded px-2 py-1 text-xs">
+                                <option value="needs">Needs</option><option value="wants">Wants</option><option value="investments">Invest</option>
+                              </select>
+                              <button onClick={saveEditedBill} className="text-emerald-600 hover:text-emerald-700 bg-emerald-50 border border-emerald-100 p-1 rounded"><Check size={14}/></button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-semibold text-slate-800">{exp.name}</span>
+                                {exp.type === 'variable' && (
+                                  <div className="flex gap-2 items-center mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="text-[10px] text-slate-400 uppercase">Change to:</span>
+                                    <select 
+                                      value={exp.category}
+                                      onChange={(e) => setCategoryOverrides(prev => ({...prev, [exp.name]: e.target.value as ExpenseCategory}))}
+                                      className="text-[10px] bg-transparent font-medium text-slate-500 hover:text-blue-600 cursor-pointer outline-none p-0 border-0"
+                                    >
+                                      <option value="needs">Needs</option>
+                                      <option value="wants">Wants</option>
+                                      <option value="investments">Invest</option>
+                                      <option value="unknown">Uncategorized</option>
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="font-bold text-slate-800 text-sm">{fmt(exp.amount)}</span>
+                                {exp.type === 'fixed' && (
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pl-2 border-l border-slate-200">
+                                    <button onClick={() => startEditingBill(exp as FixedBill)} className="text-slate-300 hover:text-blue-500 p-1"><Edit2 size={14} /></button>
+                                    <button onClick={() => removeBill(exp.id)} className="text-slate-300 hover:text-red-500 p-1"><X size={14} /></button>
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                
+                {unifiedExpenses.needs.length === 0 && unifiedExpenses.wants.length === 0 && unifiedExpenses.investments.length === 0 && unifiedExpenses.unknown.length === 0 && (
+                  <div className="p-8 text-center text-sm text-slate-400 italic">No expenses added yet.</div>
+                )}
+              </div>
+            </div>
 
             {/* Smart Insights Panel */}
             <div className="mt-2 bg-gradient-to-br from-slate-50 to-white rounded-xl border border-slate-200 shadow-sm p-4 overflow-hidden relative">
