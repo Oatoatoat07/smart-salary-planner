@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
-import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check } from 'lucide-react';
+import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check, List } from 'lucide-react';
 import { BudgetBar } from './components/BudgetBar';
 
 interface FixedBill {
