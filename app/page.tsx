@@ -5,6 +5,7 @@ import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/uti
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
 import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, RefreshCw, Save } from 'lucide-react';
+import { BudgetBar } from './components/BudgetBar';
 
 interface FixedBill {
   id: string;
@@ -523,69 +524,5 @@ export default function Dashboard() {
 
       </div>
     </main>
-  );
-}
-
-// Helper Component for Budget Progress Bars
-function BudgetBar({ label, target, actual, color }: { label: string, target: number, actual: number, color: string }) {
-  const isOver = actual > target;
-  
-  // Calculate relative percentages to the container width based on what is largest (actual or target)
-  // If we overspend, the container represents 100% of 'actual'. The Target line shrinks relative to the new max.
-  const maxValue = Math.max(target, actual, 1); // fallback to 1 to avoid div by zero
-  
-  // Example: Target = 100, Actual = 150. Max = 150.
-  // Goal Line is at 66% (100/150).
-  // Safe Fill is at 66%. Overspend Fill is at 34% (50/150).
-  
-  // Example Target = 100, Actual = 50. Max = 100.
-  // Goal Line at 100%. Safe Fill at 50%. Overspend Fill at 0%.
-
-  const targetLinePct = (target / maxValue) * 100;
-  
-  const safeActualAmount = Math.min(actual, target);
-  const overActualAmount = Math.max(0, actual - target);
-  
-  const safeFillPct = (safeActualAmount / maxValue) * 100;
-  const overFillPct = (overActualAmount / maxValue) * 100;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex justify-between text-sm font-medium">
-        <span className="text-slate-700">{label}</span>
-        <span className="text-slate-500">
-          <span className={isOver ? 'text-red-500 font-bold' : 'text-slate-800 font-bold'}>
-            {new Intl.NumberFormat('th-TH').format(actual)}
-          </span>
-          {' / '}{new Intl.NumberFormat('th-TH').format(target)}
-        </span>
-      </div>
-      
-      {/* Container Background */}
-      <div className="h-4 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner border border-slate-200/60 relative flex">
-        
-        {/* Safe Fill (Target color) */}
-        <div 
-          className={`h-full ${color} transition-all duration-500`}
-          style={{ width: `${safeFillPct}%` }}
-        />
-        
-        {/* Overspend Fill (Red) */}
-        {isOver && (
-          <div 
-            className="h-full bg-red-500 transition-all duration-500 opacity-90"
-            style={{ width: `${overFillPct}%` }}
-          />
-        )}
-
-        {/* Goal Target Vertical Marker overlaid on top */}
-        {target > 0 && (
-          <div 
-            className="absolute top-0 bottom-0 bg-slate-800 w-[2px] z-10 opacity-60"
-            style={{ left: `${targetLinePct}%` }}
-          />
-        )}
-      </div>
-    </div>
   );
 }
