@@ -1,12 +1,20 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { calculateNetSalary, calculateMonthlyTax, calculateSSO } from '@/lib/utils/thaiTax';
 import { parseExpenseDump, ExpenseCategory } from '@/lib/utils/categorizer';
 import { generateSmartInsights } from '@/lib/utils/budgetEngine';
 import { supabase } from '@/lib/supabase/client';
-import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check, List, Cloud, CloudOff, Loader2 } from 'lucide-react';
+import { Wallet, PieChart, Sparkles, TrendingUp, Settings2, CalendarPlus, X, Plus, Lightbulb, CheckSquare, Dices, Edit2, Check, List, Cloud, CloudOff, Loader2, Mic, MicOff } from 'lucide-react';
 import { BudgetBar } from './components/BudgetBar';
+
+// Web Speech API Types
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
 
 interface FixedBill {
   id: string;
@@ -41,6 +49,71 @@ export default function Dashboard() {
   const [checklistSeed, setChecklistSeed] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'local' | 'syncing' | 'synced'>('local');
+
+  // Voice Dictation State
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechReg = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechReg) {
+        setSpeechSupported(false);
+      } else {
+        const recognition = new SpeechReg();
+        recognition.continuous = true; // Keep listening until stopped
+        recognition.interimResults = false;
+        recognition.lang = 'th-TH'; // Default to Thai
+        
+        recognition.onresult = (event: any) => {
+          let finalTranscript = '';
+          // We only care about the latest results in this continuous stream
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            }
+          }
+          
+          if (finalTranscript.trim()) {
+            setExpenseDump(prev => {
+              // Ensure we start on a new line if not empty
+              const prefix = prev.trim() ? prev + '\n' : prev;
+              return prefix + finalTranscript.trim();
+            });
+          }
+        };
+
+        recognition.onend = () => {
+          // If it ends naturally, update state
+          setIsListening(false);
+        };
+
+        recognition.onerror = (event: any) => {
+          console.error("Speech recognition error", event.error);
+          setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
+      }
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!recognitionRef.current) return;
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (e) {
+        console.error("Microphone start failed", e);
+      }
+    }
+  };
 
   // Load all state from local storage and/or Supabase on mount
   useEffect(() => {
@@ -434,17 +507,36 @@ export default function Dashboard() {
 
           {/* Context Dump Box */}
           <div className="glass-panel p-6 space-y-4">
-            <div className="flex items-center space-x-3 text-purple-600 mb-2">
-              <Sparkles size={24} />
-              <h2 className="text-xl font-bold text-slate-800">3. Variable Dump Box (ใช้จิปาถะ)</h2>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center space-x-3 text-purple-600">
+                <Sparkles size={24} />
+                <h2 className="text-xl font-bold text-slate-800">3. Variable Dump Box (ใช้จิปาถะ)</h2>
+              </div>
+              
+              {speechSupported && (
+                <button
+                  onClick={toggleListening}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm ${
+                    isListening 
+                      ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse' 
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  {isListening ? (
+                    <><div className="w-2 h-2 rounded-full bg-red-500 animate-ping"></div> Listening...</>
+                  ) : (
+                    <><Mic size={14} /> Dictate</>
+                  )}
+                </button>
+              )}
             </div>
             <p className="text-sm font-medium text-slate-500">Just type everything here. We will auto-categorize it.</p>
             <textarea
               rows={6}
-              placeholder={'ค่าบ้าน 8000\nค่ากิน 6000\nดูหนัง 1000\nซื้อกองทุน 5000'}
+              placeholder={isListening ? 'Listening via microphone...' : 'ค่าบ้าน 8000\nค่ากิน 6000\nดูหนัง 1000\nซื้อกองทุน 5000'}
               value={expenseDump}
               onChange={(e) => setExpenseDump(e.target.value)}
-              className="premium-input resize-none"
+              className={`premium-input resize-none transition-all duration-300 ${isListening ? 'border-red-300 ring-4 ring-red-50 placeholder-red-300 text-red-900 bg-red-50/10' : ''}`}
             />
           </div>
 
